@@ -2,8 +2,8 @@ __author__ = 'Wade Pentz'
 import logging
 
 # Global logging handlers
-console_formatter = logging.Formatter('%(module)ls(%(asctime)s)- %(message)s', datefmt='%H:%M:%S')
-file_formatter = logging.Formatter('%(asctime)s- %(message)s', datefmt='%Y%m%d(%H:%M:%S)')
+console_formatter = logging.Formatter('%(module)ls - %(asctime)s - %(message)s', datefmt='%H:%M:%S')
+file_formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d(%H:%M:%S)')
 
 console = logging.StreamHandler()
 console.setLevel(logging.DEBUG)

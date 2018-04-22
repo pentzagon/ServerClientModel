@@ -9,3 +9,4 @@ ToDo list:
 * Test client
 * Test client closing early (logging, handling)
 * Lint all files.
+* Test directory creation for log files.
