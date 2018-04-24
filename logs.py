@@ -3,8 +3,8 @@ import logging
 
 # Include date in text file logs but not on console.
 # Text file logs are set up upon class instantiation (both server and client).
-console_formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%H:%M:%S')
-file_formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d(%H:%M:%S)')
+console_formatter = logging.Formatter('%(asctime)s    %(message)s', datefmt='%H:%M:%S')
+file_formatter = logging.Formatter('%(asctime)s    %(message)s', datefmt='%Y-%m-%d(%H:%M:%S)')
 
 # Print all log messages to the console window
 console = logging.StreamHandler()

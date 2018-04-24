@@ -25,5 +25,14 @@ class IntegrationTests(unittest.TestCase):
     def test_pass(self):
         self.assertTrue(True, 'Great job!')
 
+    # Tests:
+    ## one client connects (this can be based on demo script)
+    ## 3 clients (this can be based on demo script)
+    ## bad clients, such as:
+    ### bad chunk size
+    ### bad 
+    ### bad host/port
+    ### 
+
 if __name__ == '__main__':
     unittest.main()

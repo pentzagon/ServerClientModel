@@ -1,4 +1,4 @@
-
+"""Dictionary defining messages that can be sent between the server/client and delimiters."""
 client_api = {
     # Control flow
     "terminator": '\n',
@@ -10,6 +10,7 @@ client_api = {
     "done": 'done',
     "heartbeat": 'hb',
     "send_perf_stats": 'send_stats',
+    "file_rollover": 'file_roll',
 
     # Server to client messages
     "set_client_id": 'set_cid',

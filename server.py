@@ -32,10 +32,9 @@ class Server(asyncore.dispatcher):
         host (str): address where test server will run.
         port (int): network port the server will run on.
     """
-    CONNECTION_MAP = {}
 
     def __init__(self, host, port):
-        asyncore.dispatcher.__init__(self)# map=Server.CONNECTION_MAP)
+        asyncore.dispatcher.__init__(self)
         self.host = host
         self.port = port
         self.client_id = config["first_client_id"]
@@ -90,13 +89,11 @@ class Server(asyncore.dispatcher):
         server_log.info('Server now accepting client connections.')
         while not self.clients_done():
             asyncore.loop(timeout=config["server_timeout"], count=config["server_loop_count"])
-                          #map=Server.CONNECTION_MAP, 
 
     def clients_done(self):
         """Returns True if all clients have completed their tests and at least one client has connected."""
         if len(self.client_list) == 0:
             return False
-        #elif len(Server.CONNECTION_MAP) > 1:
         elif len(asyncore.socket_map) > 1:
             return False
         else:
@@ -104,8 +101,21 @@ class Server(asyncore.dispatcher):
 
     def write_report(self):
         """Writes out a report that displays data for all clients that ran."""
-        #self.end_time = time.strftime('%Y-%m-%d_%H:%M:%S')
-        pass
+        self.end_time = time.strftime('%Y-%m-%d_%H:%M:%S')
+        server_log.info('')
+        server_log.info('=========================================================')
+        server_log.info('All test clients completed!')
+        server_log.info('    Start time: {}'.format(self.start_time))
+        server_log.info('    End time:   {}'.format(self.end_time))
+        server_log.info('')
+        server_log.info('Total of {} client(s) ran. Data for each client:'.format(len(self.client_list)))
+        for client in self.client_list.values():
+            server_log.info('---------------------------------------------------------')
+            server_log.info('  Client {}'.format(client.client_id))
+            server_log.info('    Time ran:    {:.2f} sec'.format(client.time_ran))
+            server_log.info('    Test status: {}'.format(client.status))
+        server_log.info('=========================================================')
+        server_log.info('')
 
 
 class ClientHandler(asynchat.async_chat):
@@ -118,53 +128,85 @@ class ClientHandler(asynchat.async_chat):
     """
 
     def __init__(self, sock, addr, client_id):
-        asynchat.async_chat.__init__(self, sock=sock)#, map=Server.CONNECTION_MAP)
+        asynchat.async_chat.__init__(self, sock=sock)
         self.addr = addr
         self.client_id = client_id
         self.set_terminator(client_api["terminator"])
+        self.start_time = 0
+        self.end_time = 0
+        self.time_ran = 0
+        self.status = 'NOT STARTED'
         self.msg_buffer = []
         self.msg = ''
-        self.msg_handler = {client_api["get_client_id"]: self.handle_get_client_id,
-                            client_api["heartbeat"]: self.handle_heartbeat, 
-                            client_api["ready"]: self.handle_ready }
-        # TODO - REMOVE THESE PRINTS OR CHANGE LEVEL TO INFO
-        server_log.debug("ClientHandler spawned with addr={}, client_id={}".format(addr, client_id))
-        #server_log.debug("Server.CONNECTION_MAP = {}".format(repr(Server.CONNECTION_MAP)))
+        self.msg_split = []
+        self.msg_handler = { client_api["get_client_id"]: self.handle_get_client_id,
+                             client_api["ready"]: self.handle_ready,
+                             client_api["done"]: self.handle_done,
+                             client_api["heartbeat"]: self.handle_heartbeat,
+                             client_api["send_perf_stats"]: self.handle_perf_stats,
+                             client_api["file_rollover"]: self.handle_perf_stats, }
 
     def collect_incoming_data(self, data):
         """Buffer incoming message"""
-        # TODO - delet print
-        server_log.info('collect_incoming_data {}'.format(data))
         self.msg_buffer.append(data)
 
     def found_terminator(self):
         """Processes the incoming message by looking up the handler in the message dictionary."""
         self.msg = ''.join(self.msg_buffer)
-        server_log.info('Received message from client id {}: {}'.format(self.client_id, self.msg))
-        cmd = self.msg.split(client_api["delimiter"])[0]
+        self.msg_split = self.msg.split(client_api["delimiter"])
+        cmd = self.msg_split[0]
         try:
             self.msg_handler[cmd]()
         except KeyError as e:
             server_log.info('Unhandled command received from client id {}: {}'.format(self.client_id, cmd))
-        # except Exception as e:
-        #     server_log.info('Exception raised in server when receiving message from client: {}'.format(repr(e)))
-        #     raise e
+        except Exception as e:
+            server_log.info('Exception raised in server when receiving message from client: {}'.format(repr(e)))
+            raise e
         finally:
             self.msg_buffer = []
             self.msg = ''
+            self.msg_split = []
+
+    def handle_close(self):
+        """Sets test status and closes connection."""
+        self.end_time = time.time()
+        self.time_ran = self.end_time - self.start_time
+        if self.status != 'PASS':
+            server_log.info('Client {} aborted!'.format(self.client_id))
+            self.status = 'ABORTED'
+        self.close()
 
     ## MESSAGE HANDLERS:
 
     def handle_get_client_id(self):
-        server_log.info(str(self.client_id) + ': sending client id')
+        server_log.info(str(self.client_id) + ': Sending client id')
         self.push(client_api["set_client_id"] + client_api["delimiter"] + str(self.client_id) + client_api["terminator"])
 
     def handle_ready(self):
-        server_log.info(str(self.client_id) + ': client ready, sending test request')
-        self.push(client_api["set_client_id"] + client_api["delimiter"])
+        server_log.info(str(self.client_id) + ': Client ready, sending test request')
+        self.start_time = time.time()
+        self.status = 'RUNNING'
+        self.push(client_api["run_tests"] + client_api["terminator"])
+
+    def handle_done(self):
+        server_log.info(str(self.client_id) + ': Client finished running tests')
+        self.status = 'PASS'
+        self.handle_close()
 
     def handle_heartbeat(self):
-        server_log.info(str(self.client_id) + ': heartbeat received')
+        server_log.info(str(self.client_id) + ': Heartbeat received')
+
+    def handle_perf_stats(self):
+        if len(self.msg_split) == 3:
+            cpu = self.msg_split[1]
+            mem = self.msg_split[2]
+        else:
+            server_log.info(str(self.client_id) + ': Invalid performance stats received')
+        server_log.info(str(self.client_id) + ': Performance stats received. CPU: {} Mem: {}'.format(cpu,mem))
+        # TODO - average stats in and any other processing
+
+    def handle_file_rollover(self):
+        server_log.info(str(self.client_id) + ': File rolled over')
 
 
 if __name__ == '__main__':
@@ -173,9 +215,9 @@ if __name__ == '__main__':
         server = Server(config["host"], config["port"])
     except KeyboardInterrupt:
         server_log.info('Keyboard interrupt: Shutting server down...')
-    #except Exception as e:
-    #    print server_log.info('Exception raised at runtime: {}'.format(repr(e)))
-    #    raise e
+    except Exception as e:
+       print server_log.info('Exception raised at runtime: {}'.format(repr(e)))
+       raise e
     finally:
         if server:
             server.write_report()

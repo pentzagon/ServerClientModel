@@ -7,7 +7,7 @@ config = {
     # Network configuration
     "host": 'localhost',
     "port": 1234,
-    "server_timeout": 0.5,
+    "server_timeout": 0.1,
     "server_loop_count": 1,
     "client_timeout": 0.5,
     "first_client_id": 100,
@@ -19,4 +19,5 @@ config = {
     "heartbeat_period": 5,
     "perf_stats_period": 10,
     "done_check_period": 0.5,
+    "chunk_size_minimum": 10,
 }
