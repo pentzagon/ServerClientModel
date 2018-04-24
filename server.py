@@ -6,7 +6,8 @@ import logging
 import asyncore
 import asynchat
 import socket
-from config import Config
+from config import config
+from client_api import client_api
 from logs import server_log, file_formatter
 
 """server.py
@@ -31,26 +32,28 @@ class Server(asyncore.dispatcher):
         host (str): address where test server will run.
         port (int): network port the server will run on.
     """
+    CONNECTION_MAP = {}
 
     def __init__(self, host, port):
-        asyncore.dispatcher.__init__(self)
+        asyncore.dispatcher.__init__(self)# map=Server.CONNECTION_MAP)
         self.host = host
         self.port = port
-        self.client_id = Config["first_client_id"]
-        self.num_connected_clients = 0
-        self.init_log()
+        self.client_id = config["first_client_id"]
+        self.client_list = {}
+        self.init_log_file()
         self.init_server_socket()
         self.start_time = time.strftime('%Y-%m-%d_%H:%M:%S')
         self.end_time = None
+        self.run_loop()
 
-    def init_log(self):
+    def init_log_file(self):
         """Initializes the server's log file for client data."""
         try:
-            os.makedirs(Config["server_log_path"])
+            os.makedirs(config["server_log_path"])
         except OSError:
-            if not os.path.isdir(Config["server_log_path"]):
+            if not os.path.isdir(config["server_log_path"]):
                 raise
-        server_log_file = logging.FileHandler(Config["server_log_path"] + 'server_log_' + 
+        server_log_file = logging.FileHandler(config["server_log_path"] + 'server_log_' + 
                                                 time.strftime('%Y-%m-%d_%H.%M.%S') + '.txt')
         server_log_file.setLevel(logging.DEBUG)
         server_log_file.setFormatter(file_formatter)
@@ -66,83 +69,112 @@ class Server(asyncore.dispatcher):
         server_log.info('Initialization complete!')
 
     def handle_accept(self):
-        """Handles a client connection and creates a ClientHandler instance for it."""
+        """Handles a client connection - Creates a ClientHandler instance for it.
+        The ClientHandler is stored according to client_id in the client_list dictionary."""
         pair = self.accept()
         if pair is not None:
             sock, addr = pair
-            server_log.info('Incoming connection from {},' \
-                'assigning client id {}'.format(repr(addr), self.client_id))
-            ClientHandler(sock, addr, self.client_id)
+            server_log.info('Client connection from {}, assigning client id {}'.format(repr(addr), self.client_id))
+            handler = ClientHandler(sock, addr, self.client_id)
+            self.client_list.update({self.client_id: handler})
+            # TODO - DELETE THIS PRINT
+            server_log.debug('client_list = {}'.format(self.client_list))
             self.client_id += 1
-            self.num_connected_clients += 1
 
-    def execute(self):
-        """Execute asyncore.loop until all clients are closed"""
-        server_log.info('Server now accepting test client connections.')
+    def handle_close(self):
+        server_log.info('Server shutting down...')
+        self.close()
+
+    def run_loop(self):
+        """Run asyncore.loop until all clients are closed"""
+        server_log.info('Server now accepting client connections.')
         while not self.clients_done():
-            asyncore.loop(timeout=1, count=1)
+            asyncore.loop(timeout=config["server_timeout"], count=config["server_loop_count"])
+                          #map=Server.CONNECTION_MAP, 
 
     def clients_done(self):
-        """Returns True if all clients have completed their tests."""
-        if self.num_connected_clients == 0:
+        """Returns True if all clients have completed their tests and at least one client has connected."""
+        if len(self.client_list) == 0:
             return False
+        #elif len(Server.CONNECTION_MAP) > 1:
         elif len(asyncore.socket_map) > 1:
             return False
         else:
             return True
 
     def write_report(self):
-        """Writes out a report of the test clients that ran on the server"""
-        self.end_time = time.strftime('%Y-%m-%d_%H:%M:%S')
-        server_log.info()
-    
+        """Writes out a report that displays data for all clients that ran."""
+        #self.end_time = time.strftime('%Y-%m-%d_%H:%M:%S')
+        pass
+
+
 class ClientHandler(asynchat.async_chat):
     """Class instantiated to keep track of each client that connects to the server.
 
     Args:
-        sock (int): address for socket on which the client is connected.
-        addr (int): 
+        sock (int): socket on which the client is connected.
+        addr (int): address on which the client is connected.
         id (int): unique identifier for client.
     """
 
     def __init__(self, sock, addr, client_id):
-        asynchat.async_chat.__init__(self, sock=sock)
+        asynchat.async_chat.__init__(self, sock=sock)#, map=Server.CONNECTION_MAP)
         self.addr = addr
         self.client_id = client_id
-        self.set_terminator(Config["msg_terminator"])
-        self.buffer = [] 
+        self.set_terminator(client_api["terminator"])
+        self.msg_buffer = []
+        self.msg = ''
+        self.msg_handler = {client_api["get_client_id"]: self.handle_get_client_id,
+                            client_api["heartbeat"]: self.handle_heartbeat, 
+                            client_api["ready"]: self.handle_ready }
+        # TODO - REMOVE THESE PRINTS OR CHANGE LEVEL TO INFO
+        server_log.debug("ClientHandler spawned with addr={}, client_id={}".format(addr, client_id))
+        #server_log.debug("Server.CONNECTION_MAP = {}".format(repr(Server.CONNECTION_MAP)))
 
     def collect_incoming_data(self, data):
         """Buffer incoming message"""
-        self.buffer.append(data)
+        # TODO - delet print
+        server_log.info('collect_incoming_data {}'.format(data))
+        self.msg_buffer.append(data)
 
-    # TODO - REWRITE THIS FUNCTION!
     def found_terminator(self):
-        """Process incoming message"""
-        self.current_msg = ''.join(self.buffer)
-
-        # TODO - rewrite this part:
-        cmd = self.current_msg.split(',')[0]
+        """Processes the incoming message by looking up the handler in the message dictionary."""
+        self.msg = ''.join(self.msg_buffer)
+        server_log.info('Received message from client id {}: {}'.format(self.client_id, self.msg))
+        cmd = self.msg.split(client_api["delimiter"])[0]
         try:
-            self.cmd_dict[cmd]()
-        except KeyError:
-            msg = 'Invalid client message received from port:{}'.format(self.addr[1])
-            print msg
-            self.server_log.info(msg)
-        # END REWRITE
+            self.msg_handler[cmd]()
+        except KeyError as e:
+            server_log.info('Unhandled command received from client id {}: {}'.format(self.client_id, cmd))
+        # except Exception as e:
+        #     server_log.info('Exception raised in server when receiving message from client: {}'.format(repr(e)))
+        #     raise e
+        finally:
+            self.msg_buffer = []
+            self.msg = ''
 
-        self.buffer = []
+    ## MESSAGE HANDLERS:
+
+    def handle_get_client_id(self):
+        server_log.info(str(self.client_id) + ': sending client id')
+        self.push(client_api["set_client_id"] + client_api["delimiter"] + str(self.client_id) + client_api["terminator"])
+
+    def handle_ready(self):
+        server_log.info(str(self.client_id) + ': client ready, sending test request')
+        self.push(client_api["set_client_id"] + client_api["delimiter"])
+
+    def handle_heartbeat(self):
+        server_log.info(str(self.client_id) + ': heartbeat received')
 
 
 if __name__ == '__main__':
     server = None
     try:
-        server = Server(Config["host"], Config["port"])
-        server.execute()
+        server = Server(config["host"], config["port"])
     except KeyboardInterrupt:
-        print "Keyboard interrupt: Shutting server down..."
+        server_log.info('Keyboard interrupt: Shutting server down...')
     #except Exception as e:
-    #    print server_log.debug('Exception raised at runtime: {}'.format(repr(e)))
+    #    print server_log.info('Exception raised at runtime: {}'.format(repr(e)))
     #    raise e
     finally:
         if server:
