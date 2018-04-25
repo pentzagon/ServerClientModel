@@ -1,4 +1,5 @@
 __author__ = 'Wade Pentz'
+
 import logging
 
 # Include date in text file logs but not on console.

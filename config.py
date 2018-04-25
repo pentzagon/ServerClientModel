@@ -1,3 +1,5 @@
+__author__ = 'Wade Pentz'
+
 """A dictionary that stores all server/client configuration information."""
 config = {
     # Log configuration
@@ -13,6 +15,7 @@ config = {
     "first_client_id": 100,
 
     # Client configuration
+    "client_file_path": './client_files/',
     "default_run_time": 30,
     "default_chunk_size": 10,
     "default_file_size": 50,

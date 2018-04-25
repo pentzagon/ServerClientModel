@@ -76,8 +76,6 @@ class Server(asyncore.dispatcher):
             server_log.info('Client connection from {}, assigning client id {}'.format(repr(addr), self.client_id))
             handler = ClientHandler(sock, addr, self.client_id)
             self.client_list.update({self.client_id: handler})
-            # TODO - DELETE THIS PRINT
-            server_log.debug('client_list = {}'.format(self.client_list))
             self.client_id += 1
 
     def handle_close(self):
@@ -112,8 +110,11 @@ class Server(asyncore.dispatcher):
         for client in self.client_list.values():
             server_log.info('---------------------------------------------------------')
             server_log.info('  Client {}'.format(client.client_id))
-            server_log.info('    Time ran:    {:.2f} sec'.format(client.time_ran))
-            server_log.info('    Test status: {}'.format(client.status))
+            server_log.info('    Test status:   {}'.format(client.status))
+            server_log.info('    Time ran:      {:.2f} sec'.format(client.time_ran)) 
+            server_log.info('    Avg CPU usage: {:.2f}%'.format(client.cpu_avg))
+            server_log.info('    Avg MEM usage: {:.2f}%'.format(client.mem_avg))
+            server_log.info('    Files written: {}'.format(client.files_written))
         server_log.info('=========================================================')
         server_log.info('')
 
@@ -135,16 +136,23 @@ class ClientHandler(asynchat.async_chat):
         self.start_time = 0
         self.end_time = 0
         self.time_ran = 0
+        self.num_stat_reports = 0
+        self.cpu_avg = 0
+        self.mem_avg = 0
+        self.cpu_total = 0
+        self.mem_total = 0
+        self.files_written = 0
         self.status = 'NOT STARTED'
         self.msg_buffer = []
         self.msg = ''
         self.msg_split = []
         self.msg_handler = { client_api["get_client_id"]: self.handle_get_client_id,
                              client_api["ready"]: self.handle_ready,
+                             client_api["start"]: self.handle_start,
                              client_api["done"]: self.handle_done,
                              client_api["heartbeat"]: self.handle_heartbeat,
                              client_api["send_perf_stats"]: self.handle_perf_stats,
-                             client_api["file_rollover"]: self.handle_perf_stats, }
+                             client_api["file_rollover"]: self.handle_file_rollover, }
 
     def collect_incoming_data(self, data):
         """Buffer incoming message"""
@@ -184,9 +192,12 @@ class ClientHandler(asynchat.async_chat):
 
     def handle_ready(self):
         server_log.info(str(self.client_id) + ': Client ready, sending test request')
-        self.start_time = time.time()
-        self.status = 'RUNNING'
         self.push(client_api["run_tests"] + client_api["terminator"])
+
+    def handle_start(self):
+        server_log.info(str(self.client_id) + ': Client started running tests')
+        self.status = 'RUNNING'
+        self.start_time = time.time()
 
     def handle_done(self):
         server_log.info(str(self.client_id) + ': Client finished running tests')
@@ -200,13 +211,20 @@ class ClientHandler(asynchat.async_chat):
         if len(self.msg_split) == 3:
             cpu = self.msg_split[1]
             mem = self.msg_split[2]
+            server_log.info(str(self.client_id) + ': Performance stats received. CPU: {} Mem: {}'.format(cpu,mem))
         else:
             server_log.info(str(self.client_id) + ': Invalid performance stats received')
-        server_log.info(str(self.client_id) + ': Performance stats received. CPU: {} Mem: {}'.format(cpu,mem))
+            return
         # TODO - average stats in and any other processing
+        self.num_stat_reports += 1
+        self.cpu_total += float(cpu)
+        self.mem_total += float(mem)
+        self.cpu_avg = self.cpu_total / self.num_stat_reports
+        self.mem_avg = self.mem_total / self.num_stat_reports
 
     def handle_file_rollover(self):
         server_log.info(str(self.client_id) + ': File rolled over')
+        self.files_written += 1
 
 
 if __name__ == '__main__':

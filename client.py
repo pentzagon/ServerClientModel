@@ -25,6 +25,7 @@ COLUMN_MEM = 3
 
 Client class
 
+Describe arguments - especially units (MB for chunk and file size, time in seconds)
 
 More details
 Example of usage:
@@ -36,12 +37,14 @@ class Client(asynchat.async_chat):
     """Multi-threaded client that writes a file while reporting performance data to the host.
 
     Abstracts - When inheriting this class the following must be defined:
-        msg_handler (dict): A handler used to convert string commands from the server into method calls.
         run_tests (method): Implement to run desired client tests or behaviors that occur once connected to as host.
 
     Args:
         host (int): test server address to connect to.
         port (int): port test server is listening on.
+
+    Note: Any new commands expected from the server must be given handler methods and added to self.msg_handler.
+          This dictionary can be appended to using self.msg_handler.update().
     """
 
     def __init__(self, host, port):
@@ -54,8 +57,6 @@ class Client(asynchat.async_chat):
         self.msg_split = []
         self.set_terminator(client_api["terminator"])
         self.init_log_file()
-        # When inheriting add handlers to self.msg_handler for expected server messages in __init__().
-        # e.g. self.msg_handler.update({'expected_command': handler_function})
         self.msg_handler = { client_api["set_client_id"]: self.handle_set_id,
                              client_api["run_tests"]: self.handle_run_tests } 
     
@@ -128,6 +129,10 @@ class Client(asynchat.async_chat):
         """Informs the server that the client is ready to receive a test request."""
         self.push(client_api["ready"] + client_api["terminator"])
 
+    def send_start(self):
+        """Informs the server that the client has started running the test request."""
+        self.push(client_api["start"] + client_api["terminator"])
+
     def send_done(self):
         """Informs the server that the client is done running."""
         self.push(client_api["done"] + client_api["terminator"])
@@ -136,8 +141,12 @@ class Client(asynchat.async_chat):
 
     def handle_set_id(self):
         """Sets client_id based on server response"""
-        self.client_id = self.msg_split[1]
-        client_log.info('Client id received from server: {}'.format(self.client_id))
+        if len(self.msg_split) == 2:
+            self.client_id = self.msg_split[1]
+            client_log.info('Client id received from server: {}'.format(self.client_id))
+        else:
+            client_log.info('ERROR: Invalid client id received from server!')
+            self.handle_close()
 
     def handle_run_tests(self):
         """Begins testing at the server's request."""
@@ -155,6 +164,10 @@ class FileWriterClient(Client):
         self.run_time = run_time
         self.chunk_size = chunk_size
         self.file_size = file_size
+        self.chunk = '\x5a' * self.chunk_size * BYTES_PER_MEGABYTE
+        self.chunks_per_file = int(self.file_size / self.chunk_size)
+        self.remaining_mb = int(self.file_size % self.chunk_size)
+        self.remaining_chunk = '\x5a' * self.remaining_mb * BYTES_PER_MEGABYTE
         self.tests_done = False
         self.threads = []
         if not self.check_chunk_size() or not self.check_file_rollover():
@@ -174,6 +187,7 @@ class FileWriterClient(Client):
 
         These processes are all terminated when client closes."""
         client_log.info('Running tests...')
+        self.send_start()
         test_end_time = time.time() + self.run_time
         file_write_thread = Process(target=self.write_file)
         file_write_thread.start()
@@ -194,6 +208,9 @@ class FileWriterClient(Client):
         if self.chunk_size < config["chunk_size_minimum"]:
             client_log.info('ERROR: Chunk size is below minimum of {} MB'.format(config["chunk_size_minimum"]))
             return False
+        if self.chunk_size > self.file_size:
+            client_log.info('ERROR: Chunk size is larger than file size'.format(config["chunk_size_minimum"]))
+            return False
         return True
 
     def check_file_rollover(self):
@@ -204,20 +221,32 @@ class FileWriterClient(Client):
         return True
 
     def write_file(self):
-        """Thread: Writes data to a file in chunks as configured by the input arguments for the client."""
-        # with f.open() as f:
-        #     pa
+        """Thread: Writes data to a file in chunks as configured by the input arguments for the client.
+        When a file of size defined by the file_size argument has completed writing"""
+        try:
+            os.makedirs(config["client_file_path"])
+        except OSError:
+            if not os.path.isdir(config["client_file_path"]):
+                client_log.info('ERROR: Could not create nor find client file directory.')
+                self.handle_close()
 
-        # Write chunks in a for loop
-
-        # Upon file rollover send message to server and log to client
-        # client_log.info('Finished writing {} MB file! Starting new file write...'.format(self.file_size))
-        # self.send_file_rollover()
-
-        # When file write has completed:
-        # self.tests_done = True
-        time.sleep(20)
-        self.send_file_rollover()
+        # TODO - Use tempfile instead of writing real files?
+        while not self.tests_done:
+            file_name = config["client_file_path"] + 'client_' + str(self.client_id) + '_' + time.strftime('%Y-%m-%d_%H.%M.%S')
+            try:
+                with open(file_name, 'ab') as f:
+                    for chunk in range(self.chunks_per_file):
+                        f.write(self.chunk)
+                    f.write(self.remaining_chunk)
+                    client_log.info('Finished writing {} MB file! Starting new file write...'.format(self.file_size))
+                    self.send_file_rollover()
+            except IOError:
+                client_log.info('ERROR: Could not open file to write!')
+                self.handle_close()
+            # TODO - is this handling needed?
+            except Exception:
+                client_log.info('ERROR: Unknown error during file write!')
+                self.handle_close()
 
     ## MESSAGE SENDERS:
 
@@ -260,11 +289,11 @@ if __name__ == '__main__':
     client = None
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-r', '--runtime', dest='run_time', default=15, type=int,
+    parser.add_argument('-r', '--runtime', dest='run_time', default=10, type=int,
                         help='total allowed client run time')
-    parser.add_argument('-c', '--chunksize', dest='chunk_size', default=20, type=int,
+    parser.add_argument('-c', '--chunksize', dest='chunk_size', default=10, type=int,
                         help='file size to write')
-    parser.add_argument('-f', '--filesize', dest='file_size', default=100, type=int,
+    parser.add_argument('-f', '--filesize', dest='file_size', default=50, type=int,
                         help='file size to write')
     args = parser.parse_args()
 

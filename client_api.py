@@ -1,3 +1,5 @@
+__author__ = 'Wade Pentz'
+
 """Dictionary defining messages that can be sent between the server/client and delimiters."""
 client_api = {
     # Control flow
@@ -7,6 +9,7 @@ client_api = {
     # Client to server messages
     "get_client_id": 'get_cid',
     "ready": 'ready',
+    "start": 'start',
     "done": 'done',
     "heartbeat": 'hb',
     "send_perf_stats": 'send_stats',
