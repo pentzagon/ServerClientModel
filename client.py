@@ -14,7 +14,6 @@ from client_api import client_api
 from logs import client_log, file_formatter
 
 # Utility constants
-BYTES_PER_KILOBYTE = 1024
 BYTES_PER_MEGABYTE = 1024 * 1024
 # For finding performance stats in 'ps aux' output
 COLUMN_PID = 1
@@ -34,7 +33,8 @@ Stuff
 """
 
 class Client(asynchat.async_chat):
-    """Multi-threaded client that writes a file while reporting performance data to the host.
+    """A generic client class that handles connecting to the server including sending/receiving basic messages
+    to/from the server. Designed to be inherited to create clients that run specific tests while reporting to the server.
 
     Abstracts - When inheriting this class the following must be defined:
         run_tests (method): Implement to run desired client tests or behaviors that occur once connected to as host.
@@ -44,7 +44,7 @@ class Client(asynchat.async_chat):
         port (int): port test server is listening on.
 
     Note: Any new commands expected from the server must be given handler methods and added to self.msg_handler.
-          This dictionary can be appended to using self.msg_handler.update().
+          This dictionary can be appended to using self.msg_handler.update() in child classes.
     """
 
     def __init__(self, host, port):
@@ -70,9 +70,9 @@ class Client(asynchat.async_chat):
         """Initializes the client's log file."""
         try:
             os.makedirs(config["client_log_path"])
-        except OSError:
+        except OSError as e:
             if not os.path.isdir(config["client_log_path"]):
-                raise
+                raise e
         client_log_file = logging.FileHandler(config["client_log_path"] + 'client_log_' + 
                                                 time.strftime('%Y-%m-%d_%H.%M.%S') + '.txt')
         client_log_file.setLevel(logging.DEBUG)
@@ -92,16 +92,12 @@ class Client(asynchat.async_chat):
         self.close()
 
     def collect_incoming_data(self, data):
-        # TODO - remove this print
-        client_log.info('collect_incoming_data {}'.format(data))
         self.msg_buffer.append(data)
 
     def found_terminator(self):
         """Processes the incoming message by looking up the handler in the message dictionary."""
         self.msg = ''.join(self.msg_buffer)
         self.msg_split = self.msg.split(client_api["delimiter"])
-        # TODO - remove this print
-        client_log.info('Received message from server: {}'.format(self.msg))
         cmd = self.msg.split(client_api["delimiter"])[0]
         try:
             self.msg_handler[cmd]()
@@ -164,10 +160,10 @@ class FileWriterClient(Client):
         self.run_time = run_time
         self.chunk_size = chunk_size
         self.file_size = file_size
-        self.chunk = '\x5a' * self.chunk_size * BYTES_PER_MEGABYTE
+        self.chunk = b'\x5a' * self.chunk_size * BYTES_PER_MEGABYTE
         self.chunks_per_file = int(self.file_size / self.chunk_size)
         self.remaining_mb = int(self.file_size % self.chunk_size)
-        self.remaining_chunk = '\x5a' * self.remaining_mb * BYTES_PER_MEGABYTE
+        self.remaining_chunk = b'\x5a' * self.remaining_mb * BYTES_PER_MEGABYTE
         self.tests_done = False
         self.threads = []
         if not self.check_chunk_size() or not self.check_file_rollover():
@@ -214,11 +210,33 @@ class FileWriterClient(Client):
         return True
 
     def check_file_rollover(self):
-        """Checks if the file will rollover twice with the given arguments based on a performance measurement."""
-        if False:
-            client_log.info('ERROR: File write parameters provided will not allow file to rollover twice. Closing client...')
+        """Checks if the file will rollover twice with the given arguments based on a timed performance measurement."""
+        client_log.info('Checking if files will rollover twice with the given client parameters...')
+        file_name = config["client_file_path"] + 'client_' + str(self.client_id) + '_test_file'
+        try:
+            with open(file_name, 'ab') as f:
+                start_time = time.time()
+                f.write(self.chunk)
+                chunk_write_time = time.time() - start_time
+                start_time = time.time()
+                f.write(self.remaining_chunk)
+                remaining_chunk_write_time = time.time() - start_time
+                file_roll_time = chunk_write_time * self.chunks_per_file + remaining_chunk_write_time
+                # TODO - delete debug prints here
+                client_log.info('chunk_write_time = {}, remaining_chunk_write_time = {}'.format(chunk_write_time, remaining_chunk_write_time))
+        except IOError:
+            client_log.info('ERROR: Could not open test file to write!')
+            self.handle_close()
+        except Exception:
+            client_log.info('ERROR: Unknown error during test file write!')
+            self.handle_close()
+        finally:
+            os.remove(file_name)
+        # Convert to seconds and check against 2-file-roll requirement
+        if file_roll_time * 2 < self.run_time:
+            return True
+        else:
             return False
-        return True
 
     def write_file(self):
         """Thread: Writes data to a file in chunks as configured by the input arguments for the client.
@@ -230,9 +248,10 @@ class FileWriterClient(Client):
                 client_log.info('ERROR: Could not create nor find client file directory.')
                 self.handle_close()
 
-        # TODO - Use tempfile instead of writing real files?
+        file_count = 0
         while not self.tests_done:
-            file_name = config["client_file_path"] + 'client_' + str(self.client_id) + '_' + time.strftime('%Y-%m-%d_%H.%M.%S')
+            file_name = config["client_file_path"] + 'client_' + str(self.client_id) + '_' + str(file_count) + \
+                '_' + time.strftime('%Y-%m-%d_%H.%M.%S') 
             try:
                 with open(file_name, 'ab') as f:
                     for chunk in range(self.chunks_per_file):
@@ -243,10 +262,10 @@ class FileWriterClient(Client):
             except IOError:
                 client_log.info('ERROR: Could not open file to write!')
                 self.handle_close()
-            # TODO - is this handling needed?
             except Exception:
                 client_log.info('ERROR: Unknown error during file write!')
                 self.handle_close()
+            file_count += 1
 
     ## MESSAGE SENDERS:
 
@@ -262,11 +281,10 @@ class FileWriterClient(Client):
         while not self.tests_done:
             time.sleep(config["perf_stats_period"])
             if platform == "linux" or platform == "linux2" or platform == "darwin":
-                # TODO - stretch: send actual usage/total using other commands. Send totals to server at startup.
+                # Get %CPU and %MEM stats for the file write process using unix 'ps aux' command
                 with os.popen('ps aux') as f:
                     for line in f:
                         if line.split()[COLUMN_PID] == str(pid):
-                            # Get %CPU and %MEM stats for the file write process using unix 'ps aux' command
                             cpu = line.split()[COLUMN_CPU]
                             mem = line.split()[COLUMN_MEM]
                             self.push(client_api["send_perf_stats"] + client_api["delimiter"] + 
@@ -286,19 +304,17 @@ class FileWriterClient(Client):
 
 if __name__ == '__main__':
     # Create FileWriterClient that writes files based on the arguments provided.
-    client = None
-
     parser = argparse.ArgumentParser()
-    parser.add_argument('-r', '--runtime', dest='run_time', default=10, type=int,
+    parser.add_argument('-r', '--runtime', dest='run_time', default=15, type=int,
                         help='total allowed client run time')
-    parser.add_argument('-c', '--chunksize', dest='chunk_size', default=10, type=int,
+    parser.add_argument('-c', '--chunksize', dest='chunk_size', default=15, type=int,
                         help='file size to write')
     parser.add_argument('-f', '--filesize', dest='file_size', default=50, type=int,
                         help='file size to write')
     args = parser.parse_args()
 
+    client = None
     client = FileWriterClient(config["host"], config["port"], args.run_time, args.chunk_size, args.file_size)
-
     try:
         client.connect_to_server()
     except KeyboardInterrupt:
@@ -307,6 +323,7 @@ if __name__ == '__main__':
        print client_log.info('Exception raised at runtime: {}'.format(repr(e)))
        raise e
     finally:
-        client.close()
+        if client:
+            client.close()
 
 

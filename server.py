@@ -52,8 +52,8 @@ class Server(asyncore.dispatcher):
         except OSError:
             if not os.path.isdir(config["server_log_path"]):
                 raise
-        server_log_file = logging.FileHandler(config["server_log_path"] + 'server_log_' + 
-                                                time.strftime('%Y-%m-%d_%H.%M.%S') + '.txt')
+        server_log_file = logging.FileHandler(
+            config["server_log_path"] + 'server_log_' + time.strftime('%Y-%m-%d_%H.%M.%S') + '.txt')
         server_log_file.setLevel(logging.DEBUG)
         server_log_file.setFormatter(file_formatter)
         server_log.addHandler(server_log_file)
@@ -115,6 +115,11 @@ class Server(asyncore.dispatcher):
             server_log.info('    Avg CPU usage: {:.2f}%'.format(client.cpu_avg))
             server_log.info('    Avg MEM usage: {:.2f}%'.format(client.mem_avg))
             server_log.info('    Files written: {}'.format(client.files_written))
+            # TODO - delete debug
+            server_log.info('  DEBUG:')
+            server_log.info('    reports = {}'.format(client.num_stat_reports))
+            server_log.info('    total cpu = {}'.format(client.cpu_total))
+            server_log.info('    total mem = {}'.format(client.mem_total))
         server_log.info('=========================================================')
         server_log.info('')
 
@@ -168,7 +173,7 @@ class ClientHandler(asynchat.async_chat):
         except KeyError as e:
             server_log.info('Unhandled command received from client id {}: {}'.format(self.client_id, cmd))
         except Exception as e:
-            server_log.info('Exception raised in server when receiving message from client: {}'.format(repr(e)))
+            server_log.info('Exception raised in server when receiving message from client: {!r}'.format(e))
             raise e
         finally:
             self.msg_buffer = []
