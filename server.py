@@ -90,7 +90,7 @@ class Server(asyncore.dispatcher):
 
     def clients_done(self):
         """Returns True if all clients have completed their tests and at least one client has connected."""
-        if len(self.client_list) == 0:
+        if not self.client_list:
             return False
         elif len(asyncore.socket_map) > 1:
             return False
@@ -115,11 +115,8 @@ class Server(asyncore.dispatcher):
             server_log.info('    Avg CPU usage: {:.2f}%'.format(client.cpu_avg))
             server_log.info('    Avg MEM usage: {:.2f}%'.format(client.mem_avg))
             server_log.info('    Files written: {}'.format(client.files_written))
-            # TODO - delete debug
-            server_log.info('  DEBUG:')
-            server_log.info('    reports = {}'.format(client.num_stat_reports))
-            server_log.info('    total cpu = {}'.format(client.cpu_total))
-            server_log.info('    total mem = {}'.format(client.mem_total))
+            server_log.info('    File size:     {}'.format(client.file_size))
+            server_log.info('    Chunk size:    {}'.format(client.chunk_size))
         server_log.info('=========================================================')
         server_log.info('')
 
@@ -146,6 +143,8 @@ class ClientHandler(asynchat.async_chat):
         self.mem_avg = 0
         self.cpu_total = 0
         self.mem_total = 0
+        self.chunk_size = 0
+        self.file_size = 0
         self.files_written = 0
         self.status = 'NOT STARTED'
         self.msg_buffer = []
@@ -157,6 +156,7 @@ class ClientHandler(asynchat.async_chat):
                              client_api["done"]: self.handle_done,
                              client_api["heartbeat"]: self.handle_heartbeat,
                              client_api["send_perf_stats"]: self.handle_perf_stats,
+                             client_api["send_file_stats"]: self.handle_file_stats,
                              client_api["file_rollover"]: self.handle_file_rollover, }
 
     def collect_incoming_data(self, data):
@@ -216,16 +216,24 @@ class ClientHandler(asynchat.async_chat):
         if len(self.msg_split) == 3:
             cpu = self.msg_split[1]
             mem = self.msg_split[2]
-            server_log.info(str(self.client_id) + ': Performance stats received. CPU: {} Mem: {}'.format(cpu,mem))
+            server_log.info(str(self.client_id) + ': Performance stats received. CPU: {} Mem: {}'.format(cpu, mem))
         else:
             server_log.info(str(self.client_id) + ': Invalid performance stats received')
             return
-        # TODO - average stats in and any other processing
         self.num_stat_reports += 1
         self.cpu_total += float(cpu)
         self.mem_total += float(mem)
         self.cpu_avg = self.cpu_total / self.num_stat_reports
         self.mem_avg = self.mem_total / self.num_stat_reports
+
+    def handle_file_stats(self):
+        if len(self.msg_split) == 3:
+            self.chunk_size = int(self.msg_split[1])
+            self.file_size = int(self.msg_split[2])
+            server_log.info(str(self.client_id) + ': File stats received. Chunk size: {} File size: {}'.format(self.chunk_size, self.file_size))
+        else:
+            server_log.info(str(self.client_id) + ': Invalid file stats received')
+            return
 
     def handle_file_rollover(self):
         server_log.info(str(self.client_id) + ': File rolled over')

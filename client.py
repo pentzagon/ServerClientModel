@@ -37,11 +37,11 @@ class Client(asynchat.async_chat):
     to/from the server. Designed to be inherited to create clients that run specific tests while reporting to the server.
 
     Abstracts - When inheriting this class the following must be defined:
-        run_tests (method): Implement to run desired client tests or behaviors that occur once connected to as host.
+        run_tests (method): Implement to run desired client tests or behaviors that occur once connected to a host.
 
     Args:
-        host (int): test server address to connect to.
-        port (int): port test server is listening on.
+        host (int): test server address to connect to
+        port (int): port test server is listening on
 
     Note: Any new commands expected from the server must be given handler methods and added to self.msg_handler.
           This dictionary can be appended to using self.msg_handler.update() in child classes.
@@ -152,7 +152,15 @@ class Client(asynchat.async_chat):
 
 class FileWriterClient(Client):
     """Multi-threaded client that writes a file while reporting performance data to the host.
-    A heartbeat message is also sent to the server every 5 seconds."""
+    A heartbeat message is also sent to the server every 5 seconds.
+
+    Args:
+        host (int): test server address to connect to
+        port (int): port test server is listening on
+        run_time (int): number of seconds that the client should run for
+        chunk_size (int): size of data "chunks" (in megabytes) that client should write to files
+        file_size (int): size of files (in megabytes) that client should write
+    """
 
     def __init__(self, host, port, run_time=config["default_run_time"], 
             chunk_size=config["default_chunk_size"], file_size=config["default_file_size"]):
@@ -182,6 +190,7 @@ class FileWriterClient(Client):
             - Periodically sending performance stats to the server
 
         These processes are all terminated when client closes."""
+        self.send_file_stats()
         client_log.info('Running tests...')
         self.send_start()
         test_end_time = time.time() + self.run_time
@@ -212,7 +221,7 @@ class FileWriterClient(Client):
     def check_file_rollover(self):
         """Checks if the file will rollover twice with the given arguments based on a timed performance measurement."""
         client_log.info('Checking if files will rollover twice with the given client parameters...')
-        file_name = config["client_file_path"] + 'client_' + str(self.client_id) + '_test_file'
+        file_name = config["client_file_path"] + 'client_test_file'
         try:
             with open(file_name, 'ab') as f:
                 start_time = time.time()
@@ -222,8 +231,6 @@ class FileWriterClient(Client):
                 f.write(self.remaining_chunk)
                 remaining_chunk_write_time = time.time() - start_time
                 file_roll_time = chunk_write_time * self.chunks_per_file + remaining_chunk_write_time
-                # TODO - delete debug prints here
-                client_log.info('chunk_write_time = {}, remaining_chunk_write_time = {}'.format(chunk_write_time, remaining_chunk_write_time))
         except IOError:
             client_log.info('ERROR: Could not open test file to write!')
             self.handle_close()
@@ -301,15 +308,21 @@ class FileWriterClient(Client):
     def send_file_rollover(self):
         self.push(client_api["file_rollover"] + client_api["terminator"])
 
+    def send_file_stats(self):
+        """Sends chunk size and file size to server for reporting."""
+        client_log.info('File parameters sent to server.')
+        self.push(client_api["send_file_stats"] + client_api["delimiter"] + str(self.chunk_size) +
+            client_api["delimiter"] + str(self.file_size) + client_api["terminator"])
+
 
 if __name__ == '__main__':
     # Create FileWriterClient that writes files based on the arguments provided.
     parser = argparse.ArgumentParser()
-    parser.add_argument('-r', '--runtime', dest='run_time', default=15, type=int,
+    parser.add_argument('-r', '--runtime', dest='run_time', default=config["default_run_time"], type=int,
                         help='total allowed client run time')
-    parser.add_argument('-c', '--chunksize', dest='chunk_size', default=15, type=int,
+    parser.add_argument('-c', '--chunksize', dest='chunk_size', default=config["default_chunk_size"], type=int,
                         help='file size to write')
-    parser.add_argument('-f', '--filesize', dest='file_size', default=50, type=int,
+    parser.add_argument('-f', '--filesize', dest='file_size', default=config["default_file_size"], type=int,
                         help='file size to write')
     args = parser.parse_args()
 

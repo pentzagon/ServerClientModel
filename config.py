@@ -16,7 +16,7 @@ config = {
 
     # Client configuration
     "client_file_path": './client_files/',
-    "default_run_time": 30,
+    "default_run_time": 15,
     "default_chunk_size": 10,
     "default_file_size": 50,
     "heartbeat_period": 5,

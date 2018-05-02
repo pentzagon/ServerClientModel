@@ -13,6 +13,7 @@ client_api = {
     "done": 'done',
     "heartbeat": 'hb',
     "send_perf_stats": 'send_stats',
+    "send_file_stats": 'file_stats',
     "file_rollover": 'file_roll',
 
     # Server to client messages
