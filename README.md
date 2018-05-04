@@ -11,17 +11,17 @@ Additional information on how each piece works can be found in detailed doc stri
 Enter 'python demo.py' in the command line in this directory to run a demo that spins up a server and a few clients with varying file size, chunk size, and run time arguments.
 
 ## Client Connection Sequence Diagram:
-__Server      <->      Client__
-            <-- connect
-            <-- get client id
-client id   -->
-            <-- ready
-start tests -->
-            <-- start
-             .
-             .  (runs tests)
-             .
-            <-- done
+__Server      <->      Client__  
+            <-- connect  
+            <-- get client id  
+client id   -->  
+            <-- ready  
+start tests -->  
+            <-- start  
+             .  
+             .  (runs tests)  
+             .  
+            <-- done  
 
 ## Client/Server Protocol:
 Messages between the server and client are defined in client_api.py and can optionally be sent with arguments. Arguments are delimited by ':' (as defined in client_api.py). The first (or 0th) argument for every message is the command. Each command is a string defined in client_api.py that is expected to be handled in a server and/or client class.
@@ -34,5 +34,5 @@ _All requirements for this project have been fulfilled as far as I know. Below i
 * Improved accuracy of CPU and memory usage of file writing process. Ex: factor in number of cores for CPU usage, grab actual byte-memory usage and compare to total memory available.
 * Extended unit and integration tests. This would require modifying the current class methods to return more status information.
 
-## Notes:
-* In violation of PEP8 I used a 120-character column limit instead of 80. 120 is suitable for modern resolutions.
+## Note:
+In violation of PEP8 I used a 120-character column limit instead of 80. 120 is suitable for modern resolutions.
