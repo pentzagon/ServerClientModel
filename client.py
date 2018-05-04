@@ -176,6 +176,12 @@ class FileWriterClient(Client):
         self.threads = []
         if not self.check_chunk_size() or not self.check_file_rollover():
             raise ValueError('Invalid client configuration!')
+        try:
+            os.makedirs(config["client_file_path"])
+        except OSError:
+            if not os.path.isdir(config["client_file_path"]):
+                client_log.info('ERROR: Could not create nor find client file directory.')
+                self.handle_close()
 
     def handle_close(self):
         Client.handle_close(self)
@@ -221,7 +227,7 @@ class FileWriterClient(Client):
     def check_file_rollover(self):
         """Checks if the file will rollover twice with the given arguments based on a timed performance measurement."""
         client_log.info('Checking if files will rollover twice with the given client parameters...')
-        file_name = config["client_file_path"] + 'client_test_file'
+        file_name = config["client_file_path"] + 'client_test_file_' + str(time.time())
         try:
             with open(file_name, 'ab') as f:
                 start_time = time.time()
@@ -248,13 +254,6 @@ class FileWriterClient(Client):
     def write_file(self):
         """Thread: Writes data to a file in chunks as configured by the input arguments for the client.
         When a file of size defined by the file_size argument has completed writing"""
-        try:
-            os.makedirs(config["client_file_path"])
-        except OSError:
-            if not os.path.isdir(config["client_file_path"]):
-                client_log.info('ERROR: Could not create nor find client file directory.')
-                self.handle_close()
-
         file_count = 0
         while not self.tests_done:
             file_name = config["client_file_path"] + 'client_' + str(self.client_id) + '_' + str(file_count) + \
