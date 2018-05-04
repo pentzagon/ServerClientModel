@@ -5,7 +5,7 @@ client_api = {
     # Control flow
     "terminator": '\n',
     "delimiter": ':',
-    
+
     # Client to server messages
     "get_client_id": 'get_cid',
     "ready": 'ready',

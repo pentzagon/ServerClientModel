@@ -12,21 +12,26 @@ from logs import server_log, file_formatter
 
 """server.py
 
-Stuff.
+The Server class uses the asyncore library to set up a local, asynchronous server 
+that records test results sent by connected clients. A ClientHandler object is created 
+for each new client that connects. Clients communicate with the server using a 
+string-based messaging protocol that is defined in client_api.py. Clients are also
+tracked using sequential client ids that are assigned upon connection and sent to the
+client upon the client's request.
 
-More details
+The server logs client connections and messages to the console and to a file saved 
+to ./server_logs named 'server_log_<date&time>'. Once all clients have finished
+running, the server writes a report displaying statistics for each client including
+how long they ran, file write information, performance stats, and status into the 
+log file. If clients drop out before finishing that is logged.
 
-Example of usage:
-Stuff
+Example usage of this class is shown in the "if __name__ == '__main__':" block at
+the end of this file.
 
 """
 
 class Server(asyncore.dispatcher):
     """Server class that logs performance data from multiple, concurrent test clients.
-
-    Sets up an asynchronous server that records test results sent by connected clients. 
-    A ClientHandler object is created for each new client that connects. Clients communicate 
-    with the server using a string messaging protocol.
 
     Args:
         host (str): address where test server will run.
@@ -230,7 +235,8 @@ class ClientHandler(asynchat.async_chat):
         if len(self.msg_split) == 3:
             self.chunk_size = int(self.msg_split[1])
             self.file_size = int(self.msg_split[2])
-            server_log.info(str(self.client_id) + ': File stats received. Chunk size: {} File size: {}'.format(self.chunk_size, self.file_size))
+            server_log.info(str(self.client_id) + ': File stats received. \
+                Chunk size: {} File size: {}'.format(self.chunk_size, self.file_size))
         else:
             server_log.info(str(self.client_id) + ': Invalid file stats received')
             return

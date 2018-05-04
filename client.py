@@ -22,13 +22,36 @@ COLUMN_MEM = 3
 
 """client.py
 
-Client class
+There are two classes in this file: 
 
-Describe arguments - especially units (MB for chunk and file size, time in seconds)
+1. Client is a generic class that handles connecting to the server and is 
+meant to be inherited to create more specific test client classes. This class uses the
+asynchat library to communicate with the asyncore-based server using a string-based
+protocol defined in client_api.py. 
 
-More details
-Example of usage:
-Stuff
+This class establishes a client log file used to record client activity (saved to 
+./client_logs and named 'client_log_<date&time>'). 
+
+The method run_tests() must be extended in inheriting client classes. Once the client 
+is set up it sends a 'ready' message to the server. Then tests are kicked off when the 
+server sends a 'start' message (run_tests() is called).
+
+2. FileWriterClient is an example of a test client that inherits the Client class. 
+The client writes files as defined by the input parameters chunk_size and file_size
+Once the client has run for the time designated by the run_time input parameter it
+closes itself. chunk_size and file_size are in units of megabytes while run_time is 
+in seconds. Checks are performed at initialization to verify that the given chunk_size
+is not less than 10 MB and that the given parameters will allow the client to write
+at least 2 files before closing.
+
+The file write process is benchmarked and the CPU and memory usage of the process
+are reported to the server every 10 seconds. A heartbeat is also sent to the server
+every 5 seconds. Each of these three activities is given its own thread that is 
+managed by the standard Python multithreading library (Process class). All threads
+are terminated when the client shuts down.
+
+Example usage of this class is shown in the "if __name__ == '__main__':" block at
+the end of this file.
 
 """
 
