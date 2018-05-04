@@ -11,17 +11,17 @@ Additional information on how each piece works can be found in detailed doc stri
 Enter 'python demo.py' in the command line in this directory to run a demo that spins up a server and a few clients with varying file size, chunk size, and run time arguments.
 
 ## Client Connection Sequence Diagram:
-__Server      <->      Client__  
-            <-- connect  
-            <-- get client id  
-client id   -->  
-            <-- ready  
-start tests -->  
-            <-- start  
-             .  
-             .  (runs tests)  
-             .  
-            <-- done  
+__Server <-> Client__  
+<-- connect  
+<-- get client id  
+--> client id  
+<-- ready  
+--> start tests  
+<-- start  
+.  
+. (client runs tests)  
+.  
+<-- done  
 
 ## Client/Server Protocol:
 Messages between the server and client are defined in client_api.py and can optionally be sent with arguments. Arguments are delimited by ':' (as defined in client_api.py). The first (or 0th) argument for every message is the command. Each command is a string defined in client_api.py that is expected to be handled in a server and/or client class.
