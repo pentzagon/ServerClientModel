@@ -44,11 +44,10 @@ class Server(asyncore.dispatcher):
         self.port = port
         self.client_id = config["first_client_id"]
         self.client_list = {}
+        self.start_time = ''
+        self.end_time = ''
         self.init_log_file()
         self.init_server_socket()
-        self.start_time = time.strftime('%Y-%m-%d_%H:%M:%S')
-        self.end_time = None
-        self.run_loop()
 
     def init_log_file(self):
         """Initializes the server's log file for client data."""
@@ -71,6 +70,10 @@ class Server(asyncore.dispatcher):
         self.bind((self.host, self.port))
         self.listen(5)
         server_log.info('Initialization complete!')
+
+    def start_server(self):
+        self.start_time = time.strftime('%Y-%m-%d_%H:%M:%S')
+        self.run_loop()
 
     def handle_accept(self):
         """Handles a client connection - Creates a ClientHandler instance for it.
@@ -224,12 +227,13 @@ class ClientHandler(asynchat.async_chat):
             server_log.info(str(self.client_id) + ': Performance stats received. CPU: {} Mem: {}'.format(cpu, mem))
         else:
             server_log.info(str(self.client_id) + ': Invalid performance stats received')
-            return
+            return False
         self.num_stat_reports += 1
         self.cpu_total += float(cpu)
         self.mem_total += float(mem)
         self.cpu_avg = self.cpu_total / self.num_stat_reports
         self.mem_avg = self.mem_total / self.num_stat_reports
+        return True
 
     def handle_file_stats(self):
         if len(self.msg_split) == 3:
@@ -237,9 +241,10 @@ class ClientHandler(asynchat.async_chat):
             self.file_size = int(self.msg_split[2])
             server_log.info(str(self.client_id) + ': File stats received. \
                 Chunk size: {} File size: {}'.format(self.chunk_size, self.file_size))
+            return True
         else:
             server_log.info(str(self.client_id) + ': Invalid file stats received')
-            return
+            return False
 
     def handle_file_rollover(self):
         server_log.info(str(self.client_id) + ': File rolled over')
@@ -250,6 +255,7 @@ if __name__ == '__main__':
     server = None
     try:
         server = Server(config["host"], config["port"])
+        server.start_server()
     except KeyboardInterrupt:
         server_log.info('Keyboard interrupt: Shutting server down...')
     except Exception as e:

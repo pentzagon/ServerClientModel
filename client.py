@@ -13,13 +13,6 @@ from config import config
 from client_api import client_api
 from logs import client_log, file_formatter
 
-# Utility constants
-BYTES_PER_MEGABYTE = 1024 * 1024
-# For finding performance stats in 'ps aux' output
-COLUMN_PID = 1
-COLUMN_CPU = 2
-COLUMN_MEM = 3
-
 """client.py
 
 There are two classes in this file: 
@@ -42,7 +35,7 @@ Once the client has run for the time designated by the run_time input parameter 
 closes itself. chunk_size and file_size are in units of megabytes while run_time is 
 in seconds. Checks are performed at initialization to verify that the given chunk_size
 is not less than 10 MB and that the given parameters will allow the client to write
-at least 2 files before closing.
+at least 2 files before closing. Files are written into ./client_files.
 
 The file write process is benchmarked and the CPU and memory usage of the process
 are reported to the server every 10 seconds. A heartbeat is also sent to the server
@@ -54,6 +47,13 @@ Example usage of this class is shown in the "if __name__ == '__main__':" block a
 the end of this file.
 
 """
+
+# Utility constants
+BYTES_PER_MEGABYTE = 1024 * 1024
+# For finding performance stats in 'ps aux' output
+COLUMN_PID = 1
+COLUMN_CPU = 2
+COLUMN_MEM = 3
 
 class Client(asynchat.async_chat):
     """A generic client class that handles connecting to the server including sending/receiving basic messages
@@ -197,14 +197,15 @@ class FileWriterClient(Client):
         self.remaining_chunk = b'\x5a' * self.remaining_mb * BYTES_PER_MEGABYTE
         self.tests_done = False
         self.threads = []
-        if not self.check_chunk_size() or not self.check_file_rollover():
-            raise ValueError('Invalid client configuration!')
         try:
             os.makedirs(config["client_file_path"])
-        except OSError:
+        except OSError as e:
             if not os.path.isdir(config["client_file_path"]):
                 client_log.info('ERROR: Could not create nor find client file directory.')
                 self.handle_close()
+                raise e
+        if not self.check_chunk_size() or not self.check_file_rollover():
+            raise ValueError('Invalid client configuration!')
 
     def handle_close(self):
         Client.handle_close(self)

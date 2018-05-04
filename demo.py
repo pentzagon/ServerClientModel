@@ -30,6 +30,7 @@ if __name__ == '__main__':
     server = None
     try:
         server = Server(config["host"], config["port"])
+        server.start_server()
     except KeyboardInterrupt:
         print('Keyboard interrupt: Shutting server down...')
     except Exception as e:
